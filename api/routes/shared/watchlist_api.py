@@ -121,6 +121,54 @@ def _get_access_token():
     return user.get('anilist_access_token')
 
 
+@watchlist_api_bp.route('/token', methods=['GET'])
+def get_watchlist_token():
+    """Return the authenticated user's AniList access token."""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    token = _get_access_token()
+    if not token:
+        return jsonify({'error': 'AniList not connected'}), 400
+    return jsonify({'access_token': token})
+
+
+@watchlist_api_bp.route('/sync_mal', methods=['POST'])
+def sync_mal_endpoint():
+    """Trigger a MAL sync from client side after a mutation."""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    access_token = _get_access_token()
+    if not access_token:
+        return jsonify({'success': False, 'message': 'AniList not connected'}), 400
+
+    body = request.get_json() or {}
+    anime_id = body.get('anime_id')
+    action = body.get('action') # 'progress', 'status', 'advanced_update', or 'remove'
+    progress = body.get('progress')
+    status = body.get('status')
+    score = body.get('score')
+    mal_id = body.get('mal_id')
+    
+    if not anime_id:
+        return jsonify({'success': False, 'message': 'Missing anime ID'}), 400
+
+    user_id = session.get('_id')
+    
+    try:
+        # If we have mal_id and action is progress, do standard progress sync
+        if mal_id and action == 'progress' and progress is not None:
+            _try_mal_sync(user_id, mal_id, progress)
+        else:
+            # Sync via AniList ID lookup
+            al_status = STATUS_MAP_TO_ANILIST.get(status) if status else None
+            _sync_to_mal_via_anilist_id(user_id, anime_id, access_token, progress=progress, status=al_status, score=score)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error in sync_mal_endpoint: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 def _anilist_request(access_token, query, variables=None):
     """Fire a GraphQL request against AniList and return the parsed JSON."""
     headers = {
@@ -256,34 +304,41 @@ query ($userId: Int, $type: MediaType) {
 """
 
 
-@watchlist_api_bp.route('/paginated', methods=['GET'])
+@watchlist_api_bp.route('/paginated', methods=['GET', 'POST'])
 def watchlist_paginated():
-    """Fetch watchlist directly from AniList, apply local pagination/filter."""
+    """Fetch watchlist directly from AniList or process client-side raw data, apply local pagination/filter."""
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
-
-    access_token = _get_access_token()
-    if not access_token:
-        return jsonify({'data': [], 'pagination': {}, 'error': 'AniList not connected'}), 200
 
     page = max(1, int(request.args.get('page', 1)))
     limit = max(1, min(50, int(request.args.get('limit', 20))))
     status_filter = request.args.get('status', '').strip()
 
-    viewer_id = _fetch_viewer_id(access_token)
-    if not viewer_id:
-        if hasattr(g, 'anilist_rate_limited') and g.anilist_rate_limited:
-            retry_after = g.anilist_rate_limited.get('_retry_after', 60)
-            return jsonify({
-                'data': [],
-                'pagination': {},
-                'error': 'rate_limited',
-                'message': 'AniList is temporarily limiting requests. Please try again shortly.',
-                'retry_after': retry_after
-            }), 200
-        return jsonify({'data': [], 'pagination': {}, 'error': 'Could not verify AniList identity'}), 200
+    data = None
+    if request.method == 'POST':
+        body = request.get_json() or {}
+        data = body.get('raw_data')
 
-    data = _anilist_request(access_token, WATCHLIST_QUERY, {'userId': viewer_id, 'type': 'ANIME'})
+    if not data:
+        access_token = _get_access_token()
+        if not access_token:
+            return jsonify({'data': [], 'pagination': {}, 'error': 'AniList not connected'}), 200
+
+        viewer_id = _fetch_viewer_id(access_token)
+        if not viewer_id:
+            if hasattr(g, 'anilist_rate_limited') and g.anilist_rate_limited:
+                retry_after = g.anilist_rate_limited.get('_retry_after', 60)
+                return jsonify({
+                    'data': [],
+                    'pagination': {},
+                    'error': 'rate_limited',
+                    'message': 'AniList is temporarily limiting requests. Please try again shortly.',
+                    'retry_after': retry_after
+                }), 200
+            return jsonify({'data': [], 'pagination': {}, 'error': 'Could not verify AniList identity'}), 200
+
+        data = _anilist_request(access_token, WATCHLIST_QUERY, {'userId': viewer_id, 'type': 'ANIME'})
+
     if not data:
         return jsonify({'data': [], 'pagination': {}, 'error': 'Failed to fetch from AniList'}), 200
     if isinstance(data, dict) and data.get('_rate_limited'):
@@ -358,43 +413,50 @@ def watchlist_paginated():
     })
 
 
-@watchlist_api_bp.route('/stats', methods=['GET'])
+@watchlist_api_bp.route('/stats', methods=['GET', 'POST'])
 def watchlist_stats():
-    """Return stats from AniList Viewer query."""
+    """Return stats from AniList Viewer query or process client-side raw data."""
     if 'username' not in session:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    access_token = _get_access_token()
-    if not access_token:
-        return jsonify({}), 200
+    data = None
+    if request.method == 'POST':
+        body = request.get_json() or {}
+        data = body.get('raw_data')
 
-    viewer_id = _fetch_viewer_id(access_token)
-    if not viewer_id:
-        return jsonify({}), 200
+    if not data:
+        access_token = _get_access_token()
+        if not access_token:
+            return jsonify({}), 200
 
-    # Fetch both stats and list counts
-    query = """
-    query ($userId: Int) {
-      User(id: $userId) {
-        statistics {
-          anime {
-            count
-            meanScore
-            minutesWatched
-            episodesWatched
+        viewer_id = _fetch_viewer_id(access_token)
+        if not viewer_id:
+            return jsonify({}), 200
+
+        # Fetch both stats and list counts
+        query = """
+        query ($userId: Int) {
+          User(id: $userId) {
+            statistics {
+              anime {
+                count
+                meanScore
+                minutesWatched
+                episodesWatched
+              }
+            }
+          }
+          MediaListCollection(userId: $userId, type: ANIME) {
+            lists {
+              name
+              status
+              entries { id }
+            }
           }
         }
-      }
-      MediaListCollection(userId: $userId, type: ANIME) {
-        lists {
-          name
-          status
-          entries { id }
-        }
-      }
-    }
-    """
-    data = _anilist_request(access_token, query, {'userId': viewer_id})
+        """
+        data = _anilist_request(access_token, query, {'userId': viewer_id})
+
     if not data:
         return jsonify({}), 200
 
