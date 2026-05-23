@@ -144,6 +144,50 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (data.error) {
+                    // Rate limit — show friendly retry UI
+                    if (data.error === 'rate_limited') {
+                        if (thisGeneration === fetchGeneration && !append && watchlistContent) {
+                            const retryAfter = data.retry_after || 30;
+                            watchlistContent.innerHTML = `
+                                <div class="watchlist-empty" id="rate-limit-box" style="text-align:center;">
+                                    <div style="font-size: 3.5rem; margin-bottom: 12px;">⏳</div>
+                                    <h3 style="margin-bottom: 8px; color: var(--text-primary, #e2e8f0);">Slow Down, Senpai!</h3>
+                                    <p class="text-muted" style="margin-bottom: 18px; max-width: 380px; margin-left: auto; margin-right: auto; line-height: 1.6;">
+                                        ${data.message || 'AniList is temporarily limiting requests.'}
+                                    </p>
+                                    <div id="retry-countdown" style="display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:10px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);color:#818cf8;font-size:0.85rem;font-weight:600;margin-bottom:18px;">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                        <span>Retrying in <span id="retry-seconds">${retryAfter}</span>s</span>
+                                    </div>
+                                    <br>
+                                    <button id="retry-now-btn" onclick="this.disabled=true;this.textContent='Retrying...';window.__retryWatchlist && window.__retryWatchlist();" style="padding:10px 28px;border-radius:10px;border:1px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.15);color:#a5b4fc;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.2s;">
+                                        Retry Now
+                                    </button>
+                                </div>
+                            `;
+                            // Countdown timer
+                            let remaining = retryAfter;
+                            const countdownEl = document.getElementById('retry-seconds');
+                            const countdownInterval = setInterval(() => {
+                                remaining--;
+                                if (countdownEl) countdownEl.textContent = remaining;
+                                if (remaining <= 0) {
+                                    clearInterval(countdownInterval);
+                                    isLoading = false;
+                                    fetchWatchlist(currentStatus, 1, false);
+                                }
+                            }, 1000);
+                            // Manual retry
+                            window.__retryWatchlist = () => {
+                                clearInterval(countdownInterval);
+                                isLoading = false;
+                                fetchWatchlist(currentStatus, 1, false);
+                            };
+                        }
+                        isLoading = false;
+                        if (sentinel) sentinel.style.display = 'none';
+                        return;
+                    }
                     throw new Error(data.error);
                 }
 
@@ -237,13 +281,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
                 if (thisGeneration === fetchGeneration && !append && watchlistContent) {
+                    // Check if it looks like a network/timeout issue
+                    const isNetworkErr = e.message && (e.message.includes('fetch') || e.message.includes('network') || e.message.includes('Failed'));
                     watchlistContent.innerHTML = `
                         <div class="watchlist-empty">
-                            <div style="font-size: 4rem; margin-bottom: var(--space-md);">⚠️</div>
+                            <div style="font-size: 3.5rem; margin-bottom: var(--space-md);">${isNetworkErr ? '🔌' : '⚠️'}</div>
                             <h3>Error loading watchlist</h3>
-                            <p class="text-muted">${e.message}</p>
+                            <p class="text-muted" style="margin-bottom: 18px; max-width: 380px; margin-left: auto; margin-right: auto; line-height: 1.6;">${
+                                isNetworkErr
+                                    ? 'Could not connect. Check your internet and try again.'
+                                    : e.message
+                            }</p>
+                            <button onclick="this.disabled=true;this.textContent='Retrying...';window.__retryWatchlist && window.__retryWatchlist();" style="padding:10px 28px;border-radius:10px;border:1px solid rgba(99,102,241,0.3);background:rgba(99,102,241,0.15);color:#a5b4fc;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all 0.2s;">
+                                Retry
+                            </button>
                         </div>
                     `;
+                    window.__retryWatchlist = () => {
+                        isLoading = false;
+                        fetchWatchlist(currentStatus, 1, false);
+                    };
                 }
             } finally {
                 if (thisGeneration === fetchGeneration) {
