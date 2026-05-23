@@ -227,11 +227,12 @@
                                 </div>
                                 <div class="server-section-pills" id="hlsServerPills">
                                     {% for p_name in hls_providers %}
+                                    {% set caps = provider_capabilities_map.get(p_name, {"hls": true, "embed": false}) %}
                                     <button
-                                        class="server-pill {% if p_name == default_p and source_type == 'hls' %}active{% endif %}"
+                                        class="server-pill {% if p_name == default_p and (source_type == 'hls' or source_type == 'mp4') %}active{% endif %}"
                                         data-stream-type="hls" data-provider="{{ p_name }}">
                                         {{ p_name | title }}
-                                        <span class="srv-badge badge-hls">HLS</span>
+                                        <span class="srv-badge badge-hls">{% if caps.get("mp4") %}MP4{% else %}HLS{% endif %}</span>
                                     </button>
                                     {% endfor %}
                                 </div>

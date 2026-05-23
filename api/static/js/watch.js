@@ -425,7 +425,8 @@ function playHLS(rawUrl, allStreams) {
 
     if (typeof Hls === 'undefined') { console.error('[HLS] hls.js not loaded'); return; }
 
-    if (Hls.isSupported()) {
+    const isHls = rawUrl.includes('.m3u8') || rawUrl.includes('/proxy/m3u8') || rawUrl.includes('.urlset');
+    if (Hls.isSupported() && isHls) {
         hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: false });
 
         hlsInstance.on(Hls.Events.ERROR, function(_, d) {
@@ -457,6 +458,9 @@ function playHLS(rawUrl, allStreams) {
         hlsInstance.loadSource(rawUrl);
         hlsInstance.attachMedia(vid);
 
+    } else if (!isHls) {
+        vid.src = rawUrl;
+        vid.play().catch(function(){});
     } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
         vid.src = rawUrl;
         vid.play().catch(function(){});
@@ -521,8 +525,9 @@ function onHlsFatal() {
 }
 
 // ── Provider fallback system ──────────────────────────────────────
-var _PROVIDER_PRIORITY = ['kiwi','ax-mimi','ax-wave','ax-shiro','ax-yuki','ax-zen','bee','zoro','anixtv'];
+var _PROVIDER_PRIORITY = ['zenith','kiwi','ax-mimi','ax-wave','ax-shiro','ax-yuki','ax-zen','bee','zoro','anixtv'];
 var PROVIDER_DISPLAY_NAMES = {
+    "zenith":    "Zenith",
     "kiwi":      "Miku",
     "ax-mimi":   "Shinra",
     "ax-wave":   "Nami",
@@ -758,22 +763,32 @@ function initWatchTogetherCreate() {
 // ── applyVideoSources (replaces old Vidstack version) ────────────
 function applyVideoSources(data) {
     var hlsSources   = data.hls_sources   || [];
+    var mp4Sources   = data.video_sources || [];
     var embedSources = data.embed_sources || [];
     var desired      = window._watchState && window._watchState._desiredStreamType;
     var useEmbed     = false;
+    var useMp4       = false;
 
     if      (desired === 'hls' && hlsSources.length)     useEmbed = false;
+    else if (desired === 'hls' && mp4Sources.length)     useMp4 = true;
     else if (desired === 'hls' && embedSources.length)   useEmbed = true;  // HLS desired but unavailable — fall back to embed
     else if (desired === 'embed' && embedSources.length) useEmbed = true;
+    else if (data.source_type === 'mp4' && mp4Sources.length) useMp4 = true;
     else if (hlsSources.length)                          useEmbed = false;
+    else if (mp4Sources.length)                          useMp4 = true;
     else if (embedSources.length)                        useEmbed = true;
 
     var errEl = document.getElementById('errorFallbackContainer');
     if (errEl) errEl.style.display = 'none';
 
-    if (!useEmbed && hlsSources.length) {
+    if (useMp4 && mp4Sources.length) {
+        var mp4Url = mp4Sources[0].file || mp4Sources[0].url || data.video_link;
+        if (mp4Url) playHLS(proxyUrl(mp4Url, ''), mp4Sources);
+    } else if (!useEmbed && hlsSources.length) {
         var url = hlsSources[0].file || hlsSources[0].url;
         if (url) playHLS(proxyUrl(url, ''), hlsSources);
+    } else if (data.source_type === 'mp4' && data.video_link) {
+        playHLS(proxyUrl(data.video_link, ''), mp4Sources);
     } else if (embedSources.length) {
         // Use embed sources — either explicitly desired or as fallback
         playEmbed(embedSources[0].url);
@@ -796,12 +811,13 @@ function fetchAndLoadSources(isAutoFallback) {
     YumeZone.watch(curProv, cfg.animeId, state.language || cfg.language, cfg.episodeNumber)
     .then(function(data) {
         const hasHls   = (data.hls_sources   || []).length > 0;
+        const hasMp4   = (data.video_sources || []).length > 0 || data.source_type === 'mp4';
         const hasEmbed = (data.embed_sources || []).length > 0;
         const desiredType = state._desiredStreamType;
 
         // If we wanted HLS but only got embed, that's still usable — don't treat as failure
-        var effectivelyEmpty = !hasHls && !hasEmbed;
-        var desiredMissing   = desiredType === 'hls' && !hasHls && !hasEmbed;
+        var effectivelyEmpty = !hasHls && !hasMp4 && !hasEmbed;
+        var desiredMissing   = desiredType === 'hls' && !hasHls && !hasMp4 && !hasEmbed;
 
         if (data.error || effectivelyEmpty) {
             markProviderFailed(curProv);
@@ -856,7 +872,7 @@ function fetchAndLoadSources(isAutoFallback) {
         if (ss) {
             ss.querySelectorAll('.server-pill').forEach(function(p) { p.classList.remove('active'); });
             const dt   = state._desiredStreamType;
-            const type = dt || data.source_type || (hasHls ? 'hls' : 'embed');
+            const type = dt || (data.source_type === 'mp4' ? 'hls' : data.source_type) || (hasHls || hasMp4 ? 'hls' : 'embed');
             const act  = ss.querySelector('.server-pill[data-provider="' + curProv + '"][data-stream-type="' + type + '"]');
             if (act) act.classList.add('active');
             ss.classList.remove('loading');
@@ -1120,13 +1136,8 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
         // No server-side source — try AJAX fallback immediately
         if (cfg.provider && cfg.providers && cfg.providers.length > 0) {
-            markProviderFailed(cfg.provider);
-            var next = getNextAvailableProvider(cfg.provider);
-            if (next) {
-                window._watchState.provider = next;
-                _isFallbackInProgress = true;
-                fetchAndLoadSources(true);
-            }
+            _isFallbackInProgress = true;
+            fetchAndLoadSources(true);
         }
     }
 });

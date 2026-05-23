@@ -13,13 +13,14 @@ logger = logging.getLogger(__name__)
 
 # Provider preference order — ONLY working servers (others are filtered out of the watch page)
 PROVIDER_PRIORITY = [
-    "kiwi", "ax-mimi", "ax-wave", "ax-shiro", "ax-yuki", "ax-zen", "bee", "zoro", "anixtv",
+    "zenith", "kiwi", "ax-mimi", "ax-wave", "ax-shiro", "ax-yuki", "ax-zen", "bee", "zoro", "anixtv",
 ]
 
 # Which stream types each provider supports.
 # Used by the template to place providers in the correct section (INTERNAL vs EXTERNAL).
 # Only providers listed in PROVIDER_PRIORITY will appear on the watch page.
 PROVIDER_CAPABILITIES = {
+    "zenith":    {"hls": True,  "embed": False, "mp4": True},
     "kiwi":      {"hls": True,  "embed": True},
     "ax-mimi":   {"hls": True,  "embed": False},
     "ax-wave":   {"hls": True,  "embed": False},

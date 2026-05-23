@@ -157,6 +157,9 @@ def _route_proxy(
 
     provider_norm = _normalize_provider(provider)
 
+    if provider_norm == "zenith":
+        return url
+
     is_worker_provider = (
         provider_norm in _WORKER_PROVIDERS
         or provider_norm.startswith("ax-")

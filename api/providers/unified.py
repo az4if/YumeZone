@@ -2,6 +2,7 @@
 Unified scraper - uses AniList GraphQL directly for home data, Miruro for episodes.
 """
 
+import asyncio
 import logging
 import re
 from typing import Optional, Dict, Any, Union
@@ -11,6 +12,7 @@ from .miruro import MiruroScraper
 from .anilist_home import AnilistHomeService
 from .animex import AnimexScraper
 from .mal_fallback import MalFallbackService
+from .allanime import ZenithScraper
 # from .kuudere import KuudereScraper
 
 
@@ -26,11 +28,12 @@ class UnifiedScraper:
         self.miruro = MiruroScraper()
         self.anilist_home = AnilistHomeService()
         self.animex = AnimexScraper()
+        self.zenith = ZenithScraper()
         self.mal_fallback = MalFallbackService()
         # self.kuudere = KuudereScraper()
         self._metadata_cache = {}  # (anilist_id, ep_num) -> {"intro": ..., "outro": ...}
 
-        logger.info("[UnifiedScraper] Initialized with AniList GraphQL + Miruro + Jikan fallback")
+        logger.info("[UnifiedScraper] Initialized with AniList GraphQL + Miruro + Jikan fallback + Zenith")
 
 
     # =========================================================================
@@ -178,7 +181,7 @@ class UnifiedScraper:
         }
 
     async def episodes(self, anime_id: str, anime_slug: str = None) -> Dict[str, Any]:
-        """Get episodes list — Miruro for numeric IDs, merged with AnimeX provider blocks."""
+        """Get episodes list — Miruro for numeric IDs, merged with AnimeX and Zenith provider blocks."""
         print(f"[UnifiedScraper] episodes() called with: {anime_id}, slug: {anime_slug}")
 
         result: Dict[str, Any] = {}
@@ -191,24 +194,97 @@ class UnifiedScraper:
             except Exception as e:
                 logger.warning(f"[UnifiedScraper] episodes() Miruro failed: {e}")
 
-            # Merge AnimeX provider blocks into providers_map
-            try:
-                anime_title = result.get("title") or ""
-                ax_blocks = await self.animex.build_provider_blocks(
-                    int(anime_id), anime_title
-                )
-                if ax_blocks:
-                    providers_map = result.setdefault("providers_map", {})
-                    for server_id, block in ax_blocks.items():
-                        provider_key = f"ax-{server_id}"
-                        providers_map[provider_key] = block
-                    logger.info(
-                        f"[UnifiedScraper] episodes() merged AnimeX servers for "
-                        f"anilist_id={anime_id}: {list(ax_blocks.keys())}"
-                    )
+            anime_title = result.get("title") or ""
+            if not anime_title:
+                try:
+                    info = await self.get_anime_info(anime_id)
+                    anime_title = info.get("title") or ""
+                except Exception:
+                    pass
 
-                    # Ensure default_provider is a working streaming server from PROVIDER_PRIORITY
+            async def _load_zenith_blocks():
+                try:
+                    return await self.zenith.build_provider_blocks(int(anime_id), anime_title)
+                except Exception as e:
+                    logger.warning(f"[UnifiedScraper] episodes() Zenith merge failed: {e}")
+                    return {}
+
+            async def _load_animex_blocks():
+                try:
+                    return await self.animex.build_provider_blocks(int(anime_id), anime_title)
+                except Exception as e:
+                    logger.warning(f"[UnifiedScraper] episodes() AnimeX merge failed: {e}")
+                    return {}
+
+            if result.get("episodes"):
+                sub_eps = []
+                for ep in result.get("episodes", []) or []:
+                    ep_num = ep.get("number")
+                    if ep_num is None:
+                        continue
+                    sub_eps.append({
+                        "id": f"watch/zenith/{anime_id}/sub/zenith-{ep_num}",
+                        "number": ep_num,
+                        "title": ep.get("title") or f"Episode {ep_num}",
+                        "filler": ep.get("isFiller", False),
+                    })
+                zenith_blocks = {
+                    "zenith": {
+                        "meta": {"title": anime_title},
+                        "episodes": {"sub": sub_eps, "dub": []},
+                    }
+                } if sub_eps else {}
+                ax_blocks = {}
+            else:
+                zenith_blocks, ax_blocks = await asyncio.gather(
+                    _load_zenith_blocks(),
+                    _load_animex_blocks(),
+                )
+
+            if zenith_blocks:
+                providers_map = result.setdefault("providers_map", {})
+                for server_id, block in zenith_blocks.items():
+                    providers_map[server_id] = block
+                logger.info(
+                    f"[UnifiedScraper] episodes() merged Zenith servers for "
+                    f"anilist_id={anime_id}: {list(zenith_blocks.keys())}"
+                )
+
+                # If result is empty (Miruro failed/empty), populate basic metadata/episodes from Zenith
+                if not result.get("episodes") and "zenith" in providers_map:
+                    zenith_episodes = providers_map["zenith"].get("episodes", {})
+                    sub_eps = zenith_episodes.get("sub", [])
+                    
+                    episodes = []
+                    for ep in sub_eps:
+                        episodes.append({
+                            "episodeId": ep.get("id", ""),
+                            "number": ep.get("number", 0),
+                            "title": ep.get("title") or f"Episode {ep.get('number', '?')}",
+                            "isFiller": ep.get("filler", False),
+                            "description": "",
+                            "image": "",
+                            "airDate": "",
+                        })
+                    result["episodes"] = episodes
+                    result["totalEpisodes"] = len(episodes)
+                    result["title"] = anime_title
+
+            if ax_blocks:
+                providers_map = result.setdefault("providers_map", {})
+                for server_id, block in ax_blocks.items():
+                    provider_key = f"ax-{server_id}"
+                    providers_map[provider_key] = block
+                logger.info(
+                    f"[UnifiedScraper] episodes() merged AnimeX servers for "
+                    f"anilist_id={anime_id}: {list(ax_blocks.keys())}"
+                )
+
+            # Ensure default_provider is a working streaming server from PROVIDER_PRIORITY
+            if result.get("providers_map"):
+                try:
                     from .miruro.episodes import PROVIDER_PRIORITY
+                    providers_map = result["providers_map"]
                     best_default = None
                     for p_name in PROVIDER_PRIORITY:
                         if p_name in providers_map:
@@ -220,8 +296,8 @@ class UnifiedScraper:
                                     break
                     if best_default:
                         result["default_provider"] = best_default
-            except Exception as e:
-                logger.warning(f"[UnifiedScraper] episodes() AnimeX merge failed: {e}")
+                except Exception as e:
+                    logger.warning(f"[UnifiedScraper] default_provider resolution failed: {e}")
 
         if result:
             return result
@@ -356,6 +432,88 @@ class UnifiedScraper:
                 "source_provider": "anixtv",
             }
 
+
+        # Detect Zenith-routed episodes by the `watch/zenith/...` or `server == "zenith"` pattern.
+        is_zenith = "/zenith/" in f"/{ep_id_str}/" or server == "zenith"
+
+        if is_zenith:
+            zen_anilist_id = anilist_id or parsed_anilist_id
+            zen_ep_num = ep_number
+
+            # Parse from ep_id_str if possible, e.g. watch/zenith/12345/sub/zenith-1
+            m = re.search(r"/zenith/(\d+)/(sub|dub)/zenith-([^/]+)$", f"/{ep_id_str}")
+            if m:
+                try:
+                    zen_anilist_id = int(m.group(1))
+                except ValueError:
+                    pass
+                language = m.group(2) or language
+                tail = m.group(3)
+                try:
+                    raw_num = float(tail)
+                    zen_ep_num = int(raw_num) if raw_num.is_integer() else raw_num
+                except ValueError:
+                    pass
+
+            if zen_ep_num is None:
+                # Try parsing from tail of ep_id_str
+                num_match = re.search(r"(\d+(?:\.\d+)?)\s*$", ep_id_str)
+                if num_match:
+                    try:
+                        raw_num = float(num_match.group(1))
+                        zen_ep_num = int(raw_num) if raw_num.is_integer() else raw_num
+                    except ValueError:
+                        pass
+
+            if not zen_anilist_id or zen_ep_num is None:
+                return {
+                    "error": "no_sources",
+                    "message": "Zenith: missing anilist_id or episode number.",
+                }
+
+            try:
+                # Fetch anime title first
+                info = await self.get_anime_info(str(zen_anilist_id))
+                anime_title = info.get("title") or ""
+                
+                # Fetch Zenith streaming link
+                result = await self.zenith.get_episode_url(
+                    anilist_id=int(zen_anilist_id),
+                    title=anime_title,
+                    ep_no=str(zen_ep_num),
+                    mode=language,
+                    quality="best"
+                )
+                if result and not result.get("error"):
+                    logger.info(
+                        f"[UnifiedScraper] Video (Zenith): OK anilist_id={zen_anilist_id} "
+                        f"ep={zen_ep_num}"
+                    )
+                    result["source_provider"] = "zenith"
+                    
+                    # Update metadata cache if found
+                    if zen_anilist_id and zen_ep_num is not None:
+                        intro = result.get("intro")
+                        outro = result.get("outro")
+                        if intro or outro:
+                            self._metadata_cache[(int(zen_anilist_id), zen_ep_num)] = {"intro": intro, "outro": outro}
+                        elif (int(zen_anilist_id), zen_ep_num) in self._metadata_cache:
+                            cached = self._metadata_cache[(int(zen_anilist_id), zen_ep_num)]
+                            result["intro"] = cached.get("intro")
+                            result["outro"] = cached.get("outro")
+                            print(f"[UnifiedScraper] Borrowed intro/outro from cache for ep {zen_ep_num} (Zenith)")
+
+                    return result
+                logger.warning(
+                    f"[UnifiedScraper] Zenith returned no sources for anilist_id={zen_anilist_id} "
+                    f"ep={zen_ep_num}: {result}"
+                )
+            except Exception as e:
+                logger.warning(f"[UnifiedScraper] Zenith video failed: {e}")
+            return {
+                "error": "no_sources",
+                "message": "Zenith has no playable streams for this episode.",
+            }
 
         # Detect AnimeX-routed episodes by the `watch/ax/...` slug pattern.
         is_ax = "/ax/" in f"/{ep_id_str}/"

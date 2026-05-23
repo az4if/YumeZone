@@ -169,15 +169,24 @@ def _parse_video_raw(raw):
     if isinstance(raw, dict):
         source_type = raw.get("source_type")
         embed_sources = raw.get("embed_sources", [])
-        hls_sources = raw.get("hls_sources", raw.get("sources", []))
+        raw_hls_sources = raw.get("hls_sources", [])
+        raw_sources = raw.get("sources", [])
+        hls_sources = raw_hls_sources if isinstance(raw_hls_sources, list) else []
         video_link = raw.get("video_link")
+        if isinstance(raw_sources, list):
+            video_sources = [
+                s for s in raw_sources if isinstance(s, dict) and s.get("file")
+            ]
 
-        # Prefer HLS over embed when both are available
-        if hls_sources:
+        # Prefer HLS over embed when both are available. Direct MP4 sources must
+        # not be reported as HLS, or the watch UI marks the wrong capability.
+        if hls_sources and source_type != "mp4":
             source_type = "hls"
         elif not source_type:
             if embed_sources:
                 source_type = "embed"
+            elif video_sources:
+                source_type = "mp4"
 
         # When HLS is selected, ALWAYS use actual HLS URL (not embed URL from scraper)
         if source_type == "hls" and hls_sources:
@@ -200,12 +209,8 @@ def _parse_video_raw(raw):
                     video_link = first_source
         elif source_type == "embed" and embed_sources:
             video_link = embed_sources[0].get("url", "")
-
-        all_sources = raw.get("sources", [])
-        if isinstance(all_sources, list):
-            video_sources = [
-                s for s in all_sources if isinstance(s, dict) and s.get("file")
-            ]
+        elif source_type == "mp4" and not video_link and video_sources:
+            video_link = video_sources[0].get("file") or video_sources[0].get("url")
 
         available_qualities = raw.get("available_qualities", [])
         subtitle_tracks = raw.get("tracks", [])
@@ -255,7 +260,8 @@ def _fetch_video_only(
     if server:
         has_hls = bool(video_data.get("hls_sources"))
         has_embed = bool(video_data.get("embed_sources"))
-        capabilities[server] = {"hls": has_hls, "embed": has_embed}
+        has_mp4 = bool(video_data.get("video_sources")) or video_data.get("source_type") == "mp4"
+        capabilities[server] = {"hls": has_hls or has_mp4, "embed": has_embed, "mp4": has_mp4}
 
     print(f"[FetchVideo] Final intro: {video_data.get('intro')}")
     print(f"[FetchVideo] Final outro: {video_data.get('outro')}")
@@ -444,6 +450,9 @@ def watch(anime_id, ep_number):
     default_provider = (
         all_episodes.get("default_provider", "kiwi") if all_episodes else "kiwi"
     )
+    if not preferred_provider and default_provider == "zenith" and "kiwi" in providers_map:
+        all_episodes["default_provider"] = "kiwi"
+        default_provider = "kiwi"
 
     # ── Resolve episode (returns sorted eps_list) ──
     resolved = _resolve_episode(all_episodes, ep_number, preferred_provider)
@@ -639,14 +648,17 @@ def watch(anime_id, ep_number):
         selected_server = "hd-1"
 
     # ── Fetch video data for selected provider only (no scanning) ──
-    video_data, provider_capabilities = _fetch_video_only(
-        full_slug, lang, selected_server, anilist_id, providers_map, ep_number=ep_number
-    )
+    if selected_server == "zenith":
+        video_data = _parse_video_raw(None)
+        provider_capabilities = {
+            "zenith": {"hls": True, "embed": False, "mp4": True}
+        }
+    else:
+        video_data, provider_capabilities = _fetch_video_only(
+            full_slug, lang, selected_server, anilist_id, providers_map, ep_number=ep_number
+        )
 
-    # Scavenge for intro/outro from other providers if missing
-    video_data = _scavenge_intro_outro(
-        video_data, providers_map, ep_number, lang, selected_server, anilist_id
-    )
+        # Do not block the initial watch page on extra metadata lookups.
 
     from api.providers.miruro.episodes import PROVIDER_PRIORITY as _PP
     from api.providers.miruro.episodes import PROVIDER_CAPABILITIES as _PC
@@ -916,12 +928,15 @@ def get_watch_sources():
                 if title:
                     anime_slug = re.sub(r'[^\w\s-]', '', title.lower()).replace(' ', '-').strip('-')
 
+    fetch_id = str(anilist_id) if anilist_id else anime_id_clean
+
     # Fetch episodes with anime_slug for anidap provider discovery
     try:
-        if anilist_id:
-            all_episodes = asyncio.run(current_app.ha_scraper.episodes(str(anilist_id), anime_slug))
-        else:
-            all_episodes = asyncio.run(current_app.ha_scraper.episodes(anime_id_clean, anime_slug))
+        all_episodes = EPS_CACHE.get(str(fetch_id))
+        if not all_episodes:
+            all_episodes = asyncio.run(current_app.ha_scraper.episodes(str(fetch_id), anime_slug))
+            if all_episodes and all_episodes.get("providers_map"):
+                EPS_CACHE[str(fetch_id)] = all_episodes
     except Exception:
         return jsonify({"error": "Failed to fetch episodes"}), 500
 
@@ -977,7 +992,8 @@ def get_watch_sources():
     # Determine if this provider actually has working sources
     has_hls = bool(video_data.get("hls_sources"))
     has_embed = bool(video_data.get("embed_sources"))
-    has_sources = has_hls or has_embed
+    has_mp4 = bool(video_data.get("video_sources")) or video_data.get("source_type") == "mp4"
+    has_sources = has_hls or has_embed or has_mp4
 
     # Only save preferences if the provider actually had sources
     if selected_server and has_sources:
