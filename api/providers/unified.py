@@ -234,7 +234,7 @@ class UnifiedScraper:
                         "episodes": {"sub": sub_eps, "dub": []},
                     }
                 } if sub_eps else {}
-                ax_blocks = {}
+                ax_blocks = await _load_animex_blocks()
             else:
                 zenith_blocks, ax_blocks = await asyncio.gather(
                     _load_zenith_blocks(),
