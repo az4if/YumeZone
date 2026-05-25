@@ -9,6 +9,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/info.css') }}">
 <script src="{{ url_for('static', filename='js/music.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/watch_order.js') }}" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -392,6 +393,13 @@
             </svg>
             Music
         </button>
+        <button class="info-tab-btn" data-tab="watch-order">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                style="vertical-align: -2px; margin-right: 4px;">
+                <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            Watch Order
+        </button>
     </div>
 
     <!-- ===== Tab: Overview ===== -->
@@ -629,6 +637,39 @@
                     </h3>
                     <div id="music-endings-list" class="music-list"></div>
                 </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- ===== Tab: Watch Order ===== -->
+    <div class="info-tab-content" id="tab-watch-order" data-anilist-id="{{ anime.anilistId or current_season_id }}">
+        <section class="section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                    Watch Order
+                </h2>
+            </div>
+
+            <!-- Loading State -->
+            <div id="watch-order-loading" class="music-loading">
+                <div class="music-loading-spinner"></div>
+                <p>Loading watch order...</p>
+            </div>
+
+            <!-- Empty State -->
+            <div id="watch-order-empty" class="music-empty" style="display: none;">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5">
+                    <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                <p>No watch order found for this anime.</p>
+            </div>
+
+            <!-- Timeline Container -->
+            <div id="watch-order-container" class="watch-order-container" style="display: none;">
+                <!-- Timeline items will be dynamically injected here -->
             </div>
         </section>
     </div>

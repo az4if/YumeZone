@@ -1,5 +1,20 @@
 (function () {
     var cfg = window.WT_ROOM_CONFIG || {};
+    var _0x5f3a = function(s, t) {
+        if (!s) return null;
+        try {
+            var k = atob(t).split("").reverse().join("");
+            var b = atob(s);
+            var l = b.length;
+            var r = new Uint8Array(l);
+            for (var i = 0; i < l; i++) {
+                r[i] = b.charCodeAt(i) ^ k.charCodeAt(i % k.length) ^ ((i * 3) % 256);
+            }
+            return JSON.parse(new TextDecoder().decode(r));
+        } catch (e) {
+            return null;
+        }
+    };
     var room = cfg.room || {};
     var video = null;
     var hls = null;
@@ -337,6 +352,9 @@
         fetch('/api/watch-together/rooms/' + encodeURIComponent(room.room_id) + '/source?client_id=' + encodeURIComponent(clientId()) + '&display_name=' + encodeURIComponent(getDisplayName()))
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                if (data && data.ct) {
+                    data = _0x5f3a(data.ct, cfg.token) || data;
+                }
                 if (!data.success || !data.available || !(data.hls_sources || []).length) {
                     throw data;
                 }

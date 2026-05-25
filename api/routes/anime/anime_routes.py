@@ -140,3 +140,20 @@ async def studio_page(studio_id: int):
         current_page=page
     )
 
+
+@anime_routes_bp.route('/api/anime/<int:anilist_id>/watch-order', methods=['GET'])
+async def anime_watch_order(anilist_id: int):
+    """Fetch the watch order timeline for an anime"""
+    from flask import jsonify
+    from api.utils.watch_order import get_watch_order
+    
+    try:
+        entries = await get_watch_order(anilist_id)
+        if not entries:
+            return jsonify({"success": False, "message": "Watch order not found"}), 404
+        return jsonify({"success": True, "entries": entries}), 200
+    except Exception as e:
+        current_app.logger.error(f"Error fetching watch order for {anilist_id}: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+

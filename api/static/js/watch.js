@@ -22,6 +22,23 @@ let _failedProviders = new Set();
 let globalTimestamps = { intro: null, outro: null };
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+// Decryption helper
+const _0x5f3a = (s, t) => {
+    if (!s) return null;
+    try {
+        const k = atob(t).split("").reverse().join("");
+        const b = atob(s);
+        const l = b.length;
+        const r = new Uint8Array(l);
+        for (let i = 0; i < l; i++) {
+            r[i] = b.charCodeAt(i) ^ k.charCodeAt(i % k.length) ^ ((i * 3) % 256);
+        }
+        return JSON.parse(new TextDecoder().decode(r));
+    } catch (e) {
+        return null;
+    }
+};
+
 // ── Helpers ──────────────────────────────────────────────────────
 const YumeZone = {
     watch: async (provider, animeId, language, epNumber) => {
@@ -30,7 +47,12 @@ const YumeZone = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ anime_id: animeId, episode_number: epNumber, language, provider })
         });
-        return await r.json();
+        const res = await r.json();
+        if (res && res.ct) {
+            const token = window.WATCH_CONFIG ? window.WATCH_CONFIG.token : '';
+            return _0x5f3a(res.ct, token) || res;
+        }
+        return res;
     }
 };
 
@@ -1132,8 +1154,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ── DOMContentLoaded — init everything ───────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
-    // Init watch state
     var cfg = window.WATCH_CONFIG || {};
+    
+    // Decrypt initial sources if present
+    if (cfg.encSources && cfg.token) {
+        const decrypted = _0x5f3a(cfg.encSources, cfg.token);
+        if (decrypted) {
+            cfg.videoLink = decrypted.video_link;
+            cfg.intro = decrypted.intro;
+            cfg.outro = decrypted.outro;
+            cfg.sourceType = decrypted.source_type;
+            cfg.embed_sources = decrypted.embed_sources;
+            cfg.hls_sources = decrypted.hls_sources;
+            cfg.video_sources = decrypted.video_sources;
+            cfg.available_qualities = decrypted.available_qualities;
+            cfg.subtitle_tracks = decrypted.subtitles;
+            
+            // Populate globalTimestamps initially
+            if (decrypted.intro) globalTimestamps.intro = decrypted.intro;
+            if (decrypted.outro) globalTimestamps.outro = decrypted.outro;
+        }
+    }
+
+    // Init watch state
     window._watchState = {
         animeId:       cfg.animeId,
         episodeNumber: cfg.episodeNumber,

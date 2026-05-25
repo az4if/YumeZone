@@ -19,10 +19,12 @@ from flask import (
     jsonify,
     make_response,
 )
+import secrets
 from urllib.parse import parse_qs
 
 from ...models.watchlist import get_watchlist_entry
 from ...providers.video_utils import WORKER_BASE, proxy_video_sources
+from ...utils.cipher import encrypt_payload, obfuscate_key
 
 watch_routes_bp = Blueprint("watch_routes", __name__)
 
@@ -801,16 +803,35 @@ def watch(anime_id, ep_number):
         ):
             next_episode_url = _build_clean_url(anime_id_clean, next_episode_number)
 
+    # ── Encrypt sources and obfuscate key ──
+    if "cipher_key" not in session:
+        session["cipher_key"] = secrets.token_hex(16)
+    cipher_key = session["cipher_key"]
+    
+    sources_payload = {
+        "video_link": video_data.get("video_link") if video_data else None,
+        "subtitles": video_data.get("subtitle_tracks") if video_data else [],
+        "intro": video_data.get("intro") if video_data else None,
+        "outro": video_data.get("outro") if video_data else None,
+        "source_type": video_data.get("source_type") if video_data else None,
+        "embed_sources": video_data.get("embed_sources") if video_data else [],
+        "hls_sources": video_data.get("hls_sources") if video_data else [],
+        "video_sources": video_data.get("video_sources") if video_data else [],
+        "available_qualities": video_data.get("available_qualities") if video_data else [],
+    }
+    enc_sources = encrypt_payload(sources_payload, cipher_key)
+    cipher_key_obfuscated = obfuscate_key(cipher_key)
+
     # ── Render ──
     try:
         return render_template(
             "anime/watch.html",
             back_to_ep=anime_id_clean,
             anime_id=anime_id_clean,
-            video_link=video_data["video_link"],
-            subtitles=video_data["subtitle_tracks"],
-            intro=video_data["intro"],
-            outro=video_data["outro"],
+            video_link=None,
+            subtitles=[],
+            intro=None,
+            outro=None,
             Episode=Episode,
             episode_number=episode_number,
             episode_title=episode_title,
@@ -829,11 +850,11 @@ def watch(anime_id, ep_number):
             selected_server=selected_server,
             available_servers=available_servers,
             next_episode_schedule=next_episode_schedule,
-            video_sources=video_data["video_sources"],
-            available_qualities=video_data["available_qualities"],
-            source_type=video_data["source_type"],
-            embed_sources=video_data["embed_sources"],
-            hls_sources=video_data["hls_sources"],
+            video_sources=[],
+            available_qualities=[],
+            source_type=None,
+            embed_sources=[],
+            hls_sources=[],
             server_progress=server_progress_dict,
             is_logged_in=is_logged_in,
             provider_capabilities=provider_capabilities,
@@ -843,6 +864,8 @@ def watch(anime_id, ep_number):
                 key=lambda p: _PP.index(p),
             ),
             mal_id=mal_id,
+            enc_sources=enc_sources,
+            cipher_key_obfuscated=cipher_key_obfuscated,
         )
     except Exception as e:
         print("watch error:", e)
@@ -1028,7 +1051,14 @@ def get_watch_sources():
     print(f"[API /sources] intro response: {response_data.get('intro')}")
     print(f"[API /sources] outro response: {response_data.get('outro')}")
 
-    resp = make_response(jsonify(response_data))
+    # Encrypt the response payload
+    if "cipher_key" not in session:
+        session["cipher_key"] = secrets.token_hex(16)
+    cipher_key = session["cipher_key"]
+    
+    encrypted_payload = encrypt_payload(response_data, cipher_key)
+    
+    resp = make_response(jsonify({"ct": encrypted_payload}))
     resp.set_cookie(
         "preferred_language", lang, max_age=365 * 24 * 60 * 60, samesite="Lax"
     )

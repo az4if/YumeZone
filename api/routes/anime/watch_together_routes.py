@@ -2,7 +2,9 @@ import asyncio
 from datetime import datetime, timezone
 import re
 
+import secrets
 from flask import Blueprint, current_app, jsonify, render_template, request, session
+from ...utils.cipher import encrypt_payload, obfuscate_key
 
 from ...models import watch_together as wt
 from ...providers.miruro.episodes import PROVIDER_CAPABILITIES, PROVIDER_PRIORITY
@@ -190,12 +192,18 @@ def room_page(room_id):
     room = wt.get_room(room_id)
     if not room:
         return render_template("shared/404.html", error_message="Watch room not found"), 404
+
+    if "cipher_key" not in session:
+        session["cipher_key"] = secrets.token_hex(16)
+    cipher_key_obfuscated = obfuscate_key(session["cipher_key"])
+
     return render_template(
         "anime/watch_together_room.html",
         room=wt.serialize_room(room),
         is_logged_in=bool(session.get("username")),
         username=session.get("username") or "",
         avatar=session.get("avatar") or "",
+        cipher_key_obfuscated=cipher_key_obfuscated,
     )
 
 
@@ -434,29 +442,34 @@ def room_source_api(room_id):
             provider,
             anilist_id,
         )
+        if "cipher_key" not in session:
+            session["cipher_key"] = secrets.token_hex(16)
+        cipher_key = session["cipher_key"]
+
         hls_sources = video_data.get("hls_sources") or []
         if not hls_sources:
-            return jsonify(
-                {
-                    "success": False,
-                    "available": False,
-                    "provider": provider,
-                    "hls_providers": room.get("hls_providers") or [],
-                    "message": "Selected HLS server has no playable source.",
-                }
-            ), 200
-        return jsonify(
-            {
-                "success": True,
-                "available": True,
+            payload = {
+                "success": False,
+                "available": False,
                 "provider": provider,
                 "hls_providers": room.get("hls_providers") or [],
-                "hls_sources": hls_sources,
-                "intro": video_data.get("intro"),
-                "outro": video_data.get("outro"),
-                "subtitles": video_data.get("subtitle_tracks") or [],
+                "message": "Selected HLS server has no playable source.",
             }
-        )
+            encrypted_payload = encrypt_payload(payload, cipher_key)
+            return jsonify({"ct": encrypted_payload}), 200
+
+        payload = {
+            "success": True,
+            "available": True,
+            "provider": provider,
+            "hls_providers": room.get("hls_providers") or [],
+            "hls_sources": hls_sources,
+            "intro": video_data.get("intro"),
+            "outro": video_data.get("outro"),
+            "subtitles": video_data.get("subtitle_tracks") or [],
+        }
+        encrypted_payload = encrypt_payload(payload, cipher_key)
+        return jsonify({"ct": encrypted_payload})
     except Exception as exc:
         current_app.logger.exception("[WatchTogether] source failed")
         return _json_error("Could not load HLS source", 500)
