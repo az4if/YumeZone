@@ -461,6 +461,12 @@ def watch(anime_id, ep_number):
 
     from api.providers.miruro.episodes import PROVIDER_CAPABILITIES as _PC
 
+    # ── Generate cipher key for frontend AJAX decryption ──
+    if "cipher_key" not in session:
+        session["cipher_key"] = secrets.token_hex(16)
+    cipher_key = session["cipher_key"]
+    cipher_key_obfuscated = obfuscate_key(cipher_key)
+
     # ── Render watch.html instantly with skeleton loaders ──
     try:
         return render_template(
@@ -501,17 +507,12 @@ def watch(anime_id, ep_number):
             sorted_providers=[],
             mal_id=mal_id,
             enc_sources="",
-            cipher_key_obfuscated="",
+            cipher_key_obfuscated=cipher_key_obfuscated,
         )
     except Exception as e:
         print("watch error:", e)
         return render_template(
             "shared/404.html", error_message="An error occurred while fetching the watch page."
-        )
-    except Exception as e:
-        print("watch error:", e)
-        return render_template(
-            "shared/404.html", error_message="An error occurred while fetching the episode."
         )
 
 

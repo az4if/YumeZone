@@ -1613,8 +1613,30 @@ function renderServerPills() {
         "zoro":      {"hls": false, "embed": true},
         "anixtv":    {"hls": false, "embed": true},
     };
+
+    var map = state.providers_map || {};
+    var epNum = (window.WATCH_CONFIG || {}).episodeNumber;
+    var lang = state.language || (window.WATCH_CONFIG || {}).language || 'sub';
+
+    // Filter helper to ensure we only show servers that have the current episode
+    function hasEpisodeForProvider(p) {
+        if (p === 'zoro' || p === 'anixtv') return true;
+        
+        if (!map[p] || !map[p].episodes) return false;
+        var eps = map[p].episodes[lang] || [];
+        
+        var targetNum = parseFloat(epNum);
+        for (var i = 0; i < eps.length; i++) {
+            if (parseFloat(eps[i].number) === targetNum) {
+                return true;
+            }
+        }
+        return false;
+    }
     
     sorted.forEach(function(p) {
+        if (!hasEpisodeForProvider(p)) return; // Filter out not working/non-existent episode servers!
+        
         var caps = _PROVIDER_CAPABILITIES[p] || {"hls": true, "embed": false};
         if (caps.hls) hlsProviders.push(p);
         if (caps.embed) embedProviders.push(p);
@@ -1643,7 +1665,7 @@ function renderServerPills() {
             btn.className = 'server-pill' + (p === selectedProvider && desiredType === 'hls' ? ' active' : '');
             btn.dataset.streamType = 'hls';
             btn.dataset.provider = p;
-            btn.textContent = p.charAt(0).toUpperCase() + p.slice(1).replace('-', ' ');
+            btn.textContent = PROVIDER_DISPLAY_NAMES[p] || p.charAt(0).toUpperCase() + p.slice(1).replace('-', ' ');
             pillsContainer.appendChild(btn);
         });
         ss.appendChild(sec);
@@ -1670,7 +1692,7 @@ function renderServerPills() {
             btn.className = 'server-pill' + (p === selectedProvider && desiredType === 'embed' ? ' active' : '');
             btn.dataset.streamType = 'embed';
             btn.dataset.provider = p;
-            btn.textContent = p.charAt(0).toUpperCase() + p.slice(1).replace('-', ' ');
+            btn.textContent = PROVIDER_DISPLAY_NAMES[p] || p.charAt(0).toUpperCase() + p.slice(1).replace('-', ' ');
             pillsContainer.appendChild(btn);
         });
         ss.appendChild(sec);
