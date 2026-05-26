@@ -175,7 +175,7 @@
         try {
             chapters = JSON.parse(chaptersScript.textContent) || [];
         } catch (e) {
-            console.error("Failed to parse chapters JSON data", e);
+
             return;
         }
 
@@ -301,7 +301,7 @@
                         shareBtn.title = originalTitle;
                     }, 2000);
                 }).catch(err => {
-                    console.error("Failed to copy link to clipboard", err);
+
                 });
             });
         }

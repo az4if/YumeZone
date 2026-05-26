@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         } catch (e) {
-            console.error('Error fetching AniList access token:', e);
+
         }
     }
 
@@ -87,13 +87,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) return null;
             const data = await response.json();
             if (data.errors) {
-                console.error('AniList GraphQL errors:', data.errors);
+
                 return null;
             }
             return data;
         } catch (e) {
             if (e.name === 'AbortError') throw e;
-            console.error('AniList direct query failed:', e);
+
             return null;
         }
     }
@@ -151,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         } catch (e) {
-            console.error('Stats error:', e);
+
         }
     }
 
@@ -256,7 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         isLoading = false;
                         return;
                     }
-                    console.error("Direct AniList query failed, falling back to server-side...", err);
+
                 }
             }
 
@@ -580,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetchStats();
             }
         } catch (e) {
-            console.error('Update error:', e);
+
         }
     };
 

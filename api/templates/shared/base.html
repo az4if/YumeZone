@@ -39,8 +39,69 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/popup.css') }}">
 
-    <!-- Cloudflare Turnstile -->
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <!-- Cloudflare Turnstile — lazy-loaded when auth modal opens -->
+    <script>
+        window._turnstileLoaded = false;
+        window.loadTurnstile = function() {
+            if (window._turnstileLoaded) return;
+            window._turnstileLoaded = true;
+            var s = document.createElement('script');
+            s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+            s.async = true;
+            document.head.appendChild(s);
+        };
+    </script>
+
+    <!-- Suppress noisy third-party console messages (Cloudflare Turnstile, extensions, etc.) -->
+    <script>
+        (function() {
+            var noisyPatterns = [
+                'Feature Policy',
+                'Skipping unsupported feature name',
+                'Content-Security-Policy',
+                'Partitioned cookie or storage access',
+                'TurnstileError',
+                'unsupported entryTypes',
+                'longtask'
+            ];
+            function isNoisy(args) {
+                for (var i = 0; i < args.length; i++) {
+                    if (typeof args[i] === 'string') {
+                        for (var j = 0; j < noisyPatterns.length; j++) {
+                            if (args[i].indexOf(noisyPatterns[j]) !== -1) return true;
+                        }
+                    }
+                }
+                return false;
+            }
+            ['warn', 'error', 'log'].forEach(function(method) {
+                var original = console[method];
+                if (original) {
+                    console[method] = function() {
+                        if (!isNoisy(arguments)) {
+                            original.apply(console, arguments);
+                        }
+                    };
+                }
+            });
+
+            // Suppress uncaught TurnstileError from flooding the console
+            window.addEventListener('error', function(e) {
+                if (e && e.message && (e.message.indexOf('TurnstileError') !== -1 || e.message.indexOf('Turnstile') !== -1)) {
+                    e.preventDefault();
+                    return true;
+                }
+            });
+            window.addEventListener('unhandledrejection', function(e) {
+                var reason = e && e.reason;
+                var msg = (reason && (reason.message || String(reason))) || '';
+                if (msg.indexOf('TurnstileError') !== -1 || msg.indexOf('Turnstile') !== -1) {
+                    e.preventDefault();
+                    return true;
+                }
+            });
+        })();
+    </script>
     
     <!-- Security: Multi-method DevTools & Automation Detection -->
     <!-- <script>

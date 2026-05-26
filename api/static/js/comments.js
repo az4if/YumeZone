@@ -757,7 +757,7 @@ class CommentsManager {
                 }
             }
         } catch (e) {
-            console.error('[Tenor] error:', e);
+            
             this.DOM.gifLoading.style.display = 'none';
             this.DOM.gifGrid.innerHTML = `<p style="color:var(--text-muted);font-size:.85rem;padding:12px;grid-column:1/-1;text-align:center">Failed to load GIFs.</p>`;
         }

@@ -528,7 +528,7 @@ function playHLS(rawUrl, allStreams, options) {
     const vid   = playerArea.querySelector('#yz-video');
     if (!vid) return;
 
-    if (typeof Hls === 'undefined') { console.error('[HLS] hls.js not loaded'); return; }
+    if (typeof Hls === 'undefined') { return; }
 
     const isHls = options.type === 'mp4'
         ? false
@@ -546,8 +546,8 @@ function playHLS(rawUrl, allStreams, options) {
                 hlsInstance.swapAudioCodec();
                 hlsInstance.recoverMediaError();
             } else {
-                if (isPlaybackHealthy()) { console.warn('[HLS] fatal but healthy, ignoring'); return; }
-                console.warn('[HLS] fatal error:', d.type, d.details);
+                if (isPlaybackHealthy()) { return; }
+
                 onHlsFatal();
             }
         });
@@ -1014,7 +1014,7 @@ function fetchAndLoadSources(isAutoFallback) {
         if (ss) ss.classList.remove('loading');
     })
     .catch(function(err) {
-        console.error('[Sources] fetch error:', err);
+
         markProviderFailed(curProv);
         var next = getNextAvailableProvider(curProv);
         if (next) { showFallbackToast(curProv, next); state.provider = next; _isFallbackInProgress = true; fetchAndLoadSources(true); return; }
@@ -1526,7 +1526,7 @@ function loadZenithProgressively() {
             }
         }
     })
-    .catch(function(e) { console.error('[Zenith progressive] Error:', e); });
+    .catch(function() {});
 }
 
 function loadAnimeXProgressively() {
@@ -1573,7 +1573,7 @@ function loadAnimeXProgressively() {
             }
         }
     })
-    .catch(function(e) { console.error('[AnimeX progressive] Error:', e); });
+    .catch(function() {});
 }
 
 function loadHindiProgressively() {
@@ -1626,7 +1626,7 @@ function loadHindiProgressively() {
             renderServerPills();
         }
     })
-    .catch(function(e) { console.error('[Hindi progressive] Error:', e); });
+    .catch(function() {});
 }
 
 // Global server pills rendering using existing capabilities map
@@ -1861,7 +1861,7 @@ function navigateToEpisode(epNum, isPopState) {
         try {
             saveWatchHistory(vid.currentTime, vid.duration);
         } catch(e) {
-            console.error('[navigateToEpisode] Error saving history:', e);
+
         }
     }
     
@@ -2025,7 +2025,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     })
     .catch(function(err) {
-        console.error('[Watch DOMContentLoaded] Error fetching episodes list:', err);
+
         showNoSourcesMessage();
     });
 });

@@ -96,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================
 
 function openLoginModal(view = 'login') {
+    if (window.loadTurnstile) window.loadTurnstile();
     const modal = document.getElementById('login-modal');
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
@@ -407,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         statusDiv.style.color = '#ff4d4d';
                     }
                 } catch (e) {
-                    console.error('Error checking username availability:', e);
+
                 }
             }, 400);
         });
@@ -435,7 +436,7 @@ async function handleLogout(e) {
             alert('Logout failed. Please try again.');
         }
     } catch (err) {
-        console.error('Logout error:', err);
+
         window.location.href = '/';
     }
 }
@@ -480,7 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     } catch (e) {
-        console.error("Error auto-updating watch links:", e);
+
     }
 });
 
