@@ -949,7 +949,7 @@ def check_hindi_dub_ajax(anime_id):
         async def check_hindi():
             embed_url = f"https://anixtv.in/anime-watch?action=hindi_1_player&id={anilist_id}&season=1&episode={ep_number}"
             async with aiohttp.ClientSession() as session:
-                async with session.get(embed_url, timeout=2.0) as resp:
+                async with session.get(embed_url, timeout=5.0) as resp:
                     text = await resp.text()
                     if "We couldn't find a Hindi Dub" not in text and "Error: Could not map" not in text and "<iframe" in text:
                         return True

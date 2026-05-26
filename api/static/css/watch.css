@@ -29,7 +29,8 @@
         flex-direction: column;
     }
 
-    .watch-main.hide-sidebar {
+    .watch-main.hide-sidebar,
+    .watch-main.hide-sidebar.sidebar-right {
         grid-template-columns: 1fr !important;
     }
 
