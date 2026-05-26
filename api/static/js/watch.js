@@ -1497,70 +1497,359 @@ function initWatchQuickBar() {
 
 
 // ── DOMContentLoaded — init everything ───────────────────────────
+// Progressive background discovery functions
+function loadZenithProgressively() {
+    var cfg = window.WATCH_CONFIG || {};
+    if (!cfg.animeId || !String(cfg.animeId).match(/^\d+$/)) return;
+    
+    fetch('/api/watch/' + cfg.animeId + '/episodes/zenith')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success && data.blocks && data.blocks.zenith) {
+            var state = window._watchState || {};
+            state.providers_map = state.providers_map || {};
+            state.providers_map['zenith'] = data.blocks.zenith;
+            
+            state.providers = state.providers || [];
+            if (!state.providers.includes('zenith')) {
+                state.providers.unshift('zenith'); // Add at the start of array
+                renderServerPills();
+                
+                // Switch if it was preferred
+                var preferred = localStorage.getItem('yumePreferredServer') || cfg.provider;
+                if (preferred === 'zenith' && state.provider !== 'zenith') {
+                    showToast('Switching to preferred provider: <strong>Zenith</strong>', 'info');
+                    switchProvider('zenith');
+                }
+            }
+        }
+    })
+    .catch(function(e) { console.error('[Zenith progressive] Error:', e); });
+}
+
+function loadAnimeXProgressively() {
+    var cfg = window.WATCH_CONFIG || {};
+    if (!cfg.animeId || !String(cfg.animeId).match(/^\d+$/)) return;
+    
+    fetch('/api/watch/' + cfg.animeId + '/episodes/animex')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success && data.blocks) {
+            var state = window._watchState || {};
+            state.providers_map = state.providers_map || {};
+            
+            var addedAny = false;
+            Object.keys(data.blocks).forEach(function(key) {
+                var providerKey = 'ax-' + key;
+                state.providers_map[providerKey] = data.blocks[key];
+                
+                state.providers = state.providers || [];
+                if (!state.providers.includes(providerKey)) {
+                    var _PP = ['zenith','kiwi','ax-mimi','ax-wave','ax-shiro','ax-yuki','ax-zen','bee','zoro','anixtv'];
+                    state.providers.push(providerKey);
+                    state.providers.sort(function(a, b) {
+                        var idxA = _PP.indexOf(a) !== -1 ? _PP.indexOf(a) : 99;
+                        var idxB = _PP.indexOf(b) !== -1 ? _PP.indexOf(b) : 99;
+                        return idxA - idxB;
+                    });
+                    addedAny = true;
+                }
+            });
+            
+            if (addedAny) {
+                renderServerPills();
+                
+                // Switch if preferred AX server resolved
+                var preferred = localStorage.getItem('yumePreferredServer') || cfg.provider;
+                if (preferred && preferred.indexOf('ax-') === 0 && state.provider !== preferred && state.providers.includes(preferred)) {
+                    showToast('Switching to preferred provider: <strong>' + preferred + '</strong>', 'info');
+                    switchProvider(preferred);
+                }
+            }
+        }
+    })
+    .catch(function(e) { console.error('[AnimeX progressive] Error:', e); });
+}
+
+function loadHindiProgressively() {
+    var cfg = window.WATCH_CONFIG || {};
+    fetch('/api/watch/' + cfg.animeId + '/episodes/hindi?episode=' + cfg.episodeNumber)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success && data.hindi_available) {
+            var btnDub = document.getElementById('btnDub') || document.querySelector('.lang-toggle button:last-child');
+            if (btnDub && btnDub.hasAttribute('disabled')) {
+                btnDub.removeAttribute('disabled');
+                btnDub.removeAttribute('title');
+                btnDub.onclick = function() { switchLanguage('dub'); };
+                btnDub.className = 'lang-btn' + (window._watchState.language === 'dub' ? ' active' : '');
+            }
+        }
+    })
+    .catch(function(e) { console.error('[Hindi progressive] Error:', e); });
+}
+
+// Global server pills rendering using existing capabilities map
+function renderServerPills() {
+    var ss = document.getElementById('serverSections');
+    if (!ss) return;
+    
+    ss.innerHTML = '';
+    var state = window._watchState || {};
+    var sorted = state.providers || [];
+    if (sorted.length === 0) return;
+    
+    var hlsProviders = [];
+    var embedProviders = [];
+    var _PROVIDER_CAPABILITIES = {
+        "zenith":    {"hls": true,  "embed": false, "mp4": true},
+        "kiwi":      {"hls": true,  "embed": true},
+        "ax-mimi":   {"hls": true,  "embed": false},
+        "ax-wave":   {"hls": true,  "embed": false},
+        "ax-shiro":  {"hls": true,  "embed": false},
+        "ax-yuki":   {"hls": true,  "embed": false},
+        "ax-zen":    {"hls": true,  "embed": false},
+        "bee":       {"hls": true,  "embed": false},
+        "zoro":      {"hls": false, "embed": true},
+        "anixtv":    {"hls": false, "embed": true},
+    };
+    
+    sorted.forEach(function(p) {
+        var caps = _PROVIDER_CAPABILITIES[p] || {"hls": true, "embed": false};
+        if (caps.hls) hlsProviders.push(p);
+        if (caps.embed) embedProviders.push(p);
+    });
+    
+    var selectedProvider = state.provider || (window.WATCH_CONFIG || {}).provider;
+    var desiredType = state._desiredStreamType || (window.WATCH_CONFIG || {}).sourceType || (hlsProviders.includes(selectedProvider) ? 'hls' : 'embed');
+    if (desiredType === 'mp4') desiredType = 'hls';
+
+    // Render HLS section
+    if (hlsProviders.length > 0) {
+        var sec = document.createElement('div');
+        sec.className = 'server-section';
+        sec.innerHTML = `
+            <div class="server-section-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+                INTERNAL
+            </div>
+            <div class="server-section-pills" id="hlsServerPills"></div>
+        `;
+        var pillsContainer = sec.querySelector('#hlsServerPills');
+        hlsProviders.forEach(function(p) {
+            var btn = document.createElement('button');
+            btn.className = 'server-pill' + (p === selectedProvider && desiredType === 'hls' ? ' active' : '');
+            btn.dataset.streamType = 'hls';
+            btn.dataset.provider = p;
+            btn.textContent = p.charAt(0).toUpperCase() + p.slice(1).replace('-', ' ');
+            pillsContainer.appendChild(btn);
+        });
+        ss.appendChild(sec);
+    }
+    
+    // Render Embed section
+    if (embedProviders.length > 0) {
+        var sec = document.createElement('div');
+        sec.className = 'server-section';
+        sec.innerHTML = `
+            <div class="server-section-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+                EXTERNAL
+            </div>
+            <div class="server-section-pills" id="embedServerPills"></div>
+        `;
+        var pillsContainer = sec.querySelector('#embedServerPills');
+        embedProviders.forEach(function(p) {
+            var btn = document.createElement('button');
+            btn.className = 'server-pill' + (p === selectedProvider && desiredType === 'embed' ? ' active' : '');
+            btn.dataset.streamType = 'embed';
+            btn.dataset.provider = p;
+            btn.textContent = p.charAt(0).toUpperCase() + p.slice(1).replace('-', ' ');
+            pillsContainer.appendChild(btn);
+        });
+        ss.appendChild(sec);
+    }
+}
+
+function renderEpisodeSidebar(episodes) {
+    const listContainer = document.getElementById('episodeList');
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = '';
+    
+    if (!episodes || episodes.length === 0) {
+        listContainer.innerHTML = `
+            <div class="episodes-empty-state">
+                <div class="ee-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                </div>
+                <h3>No Episodes Yet</h3>
+                <p>We couldn't find any episodes for this anime. Check back later!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const currentEpNum = String(window.WATCH_CONFIG.episodeNumber);
+    const animeId = window.WATCH_CONFIG.animeId;
+    
+    episodes.forEach(function(ep) {
+        const isCurrent = String(ep.number) === currentEpNum;
+        const item = document.createElement('a');
+        item.href = `/watch/${animeId}/ep-${ep.number}`;
+        item.className = 'episode-sidebar-item' + (isCurrent ? ' current' : '') + (ep.isFiller ? ' is-filler' : '');
+        item.dataset.number = ep.number;
+        
+        let fillerBadge = ep.isFiller ? '<span class="filler-badge">Filler</span>' : '';
+        
+        item.innerHTML = `
+            <div class="episode-sidebar-num">${ep.number}</div>
+            <div class="episode-info">
+                <div class="episode-title">
+                    ${ep.title || 'Episode ' + ep.number}
+                    ${fillerBadge}
+                </div>
+            </div>
+        `;
+        
+        listContainer.appendChild(item);
+    });
+    
+    // Trigger scroll to active episode if needed
+    setTimeout(function() {
+        const activeItem = listContainer.querySelector('.episode-sidebar-item.current');
+        if (activeItem) activeItem.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 200);
+}
+
+function updateNavigationButtons(episodes) {
+    const currentEpNum = parseInt(window.WATCH_CONFIG.episodeNumber);
+    const prevBtn = document.querySelector('.watch-nav-left a:first-child');
+    const nextBtn = document.querySelector('.watch-nav-left a:last-child');
+    
+    if (!episodes || episodes.length === 0) return;
+    
+    const currentIdx = episodes.findIndex(function(ep) { return parseInt(ep.number) === currentEpNum; });
+    
+    if (currentIdx > 0) {
+        const prevEp = episodes[currentIdx - 1];
+        if (prevBtn) {
+            prevBtn.href = `/watch/${window.WATCH_CONFIG.animeId}/ep-${prevEp.number}`;
+            prevBtn.className = 'btn btn-sm btn-primary';
+            prevBtn.removeAttribute('aria-disabled');
+            prevBtn.removeAttribute('onclick');
+            prevBtn.style.opacity = '1';
+            prevBtn.style.cursor = 'pointer';
+        }
+    } else {
+        if (prevBtn) {
+            prevBtn.href = 'javascript:void(0)';
+            prevBtn.className = 'btn btn-sm btn-ghost';
+            prevBtn.setAttribute('aria-disabled', 'true');
+            prevBtn.setAttribute('onclick', 'return false;');
+            prevBtn.style.opacity = '0.5';
+            prevBtn.style.cursor = 'not-allowed';
+        }
+    }
+    
+    if (currentIdx !== -1 && currentIdx < episodes.length - 1) {
+        const nextEp = episodes[currentIdx + 1];
+        if (nextBtn) {
+            nextBtn.href = `/watch/${window.WATCH_CONFIG.animeId}/ep-${nextEp.number}`;
+            nextBtn.className = 'btn btn-sm btn-primary';
+            nextBtn.removeAttribute('aria-disabled');
+            nextBtn.setAttribute('onclick', 'window._forceEpisodeComplete = true;');
+            nextBtn.style.opacity = '1';
+            nextBtn.style.cursor = 'pointer';
+        }
+    } else {
+        if (nextBtn) {
+            nextBtn.href = 'javascript:void(0)';
+            nextBtn.className = 'btn btn-sm btn-ghost';
+            nextBtn.setAttribute('aria-disabled', 'true');
+            nextBtn.setAttribute('onclick', 'return false;');
+            nextBtn.style.opacity = '0.5';
+            nextBtn.style.cursor = 'not-allowed';
+        }
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     initWatchQuickBar();
     var cfg = window.WATCH_CONFIG || {};
     
-    // Decrypt initial sources if present
-    if (cfg.encSources && cfg.token) {
-        const decrypted = _0x5f3a(cfg.encSources, cfg.token);
-        if (decrypted) {
-            cfg.videoLink = decrypted.video_link;
-            cfg.intro = decrypted.intro;
-            cfg.outro = decrypted.outro;
-            cfg.sourceType = decrypted.source_type;
-            cfg.embed_sources = decrypted.embed_sources;
-            cfg.hls_sources = decrypted.hls_sources;
-            cfg.video_sources = decrypted.video_sources;
-            cfg.available_qualities = decrypted.available_qualities;
-            cfg.subtitle_tracks = decrypted.subtitles;
-            
-            // Populate globalTimestamps initially
-            if (decrypted.intro) globalTimestamps.intro = decrypted.intro;
-            if (decrypted.outro) globalTimestamps.outro = decrypted.outro;
-        }
-    }
-
-    // Init watch state
+    // Init watch state with loading placeholders
     window._watchState = {
         animeId:       cfg.animeId,
         episodeNumber: cfg.episodeNumber,
         language:      cfg.language,
-        provider:      cfg.provider,
-        providers:     cfg.providers || []
+        provider:      localStorage.getItem('yumePreferredServer') || cfg.provider || 'kiwi',
+        providers:     []
     };
 
-    // Highlight correct server pill on initial load
-    var ss = document.getElementById('serverSections');
-    if (ss && cfg.provider) {
-        var type = cfg.sourceType;
-        if (type === 'mp4') type = 'hls';
-        if (!type) {
-            var hasHls = (cfg.hls_sources && cfg.hls_sources.length > 0) || (cfg.video_sources && cfg.video_sources.length > 0);
-            var hasEmbed = cfg.embed_sources && cfg.embed_sources.length > 0;
-            type = hasHls ? 'hls' : (hasEmbed ? 'embed' : 'hls');
-        }
-        ss.querySelectorAll('.server-pill').forEach(function(p) { p.classList.remove('active'); });
-        var act = ss.querySelector('.server-pill[data-provider="' + cfg.provider + '"][data-stream-type="' + type + '"]');
-        if (act) {
-            act.classList.add('active');
-        }
-    }
+    // ── Fetch episodes list dynamically ──
+    fetch('/api/watch/' + cfg.animeId + '/episodes')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success && data.episodes) {
+            // Update watch state
+            var state = window._watchState;
+            state.providers = data.sorted_providers || [];
+            state.providers_map = data.providers_map || {};
+            
+            // Populate WATCH_CONFIG properties
+            if (window.WATCH_CONFIG) {
+                window.WATCH_CONFIG.providers = state.providers;
+            }
 
-    // Play initial stream from server-rendered WATCH_CONFIG
-    if (cfg.videoLink && cfg.videoLink.length > 0) {
-        if (cfg.sourceType === 'embed') {
-            playEmbed(cfg.videoLink);
-        } else {
-            playHLS(cfg.videoLink, null, { type: cfg.sourceType === 'mp4' ? 'mp4' : 'hls' });
-        }
-    } else {
-        // No server-side source — try AJAX fallback immediately
-        if (cfg.provider && cfg.providers && cfg.providers.length > 0) {
+            // Render UI
+            renderEpisodeSidebar(data.episodes);
+            updateNavigationButtons(data.episodes);
+            
+            // Language updates if dub is discovered
+            if (data.dub_available) {
+                var btnDub = document.getElementById('btnDub') || document.querySelector('.lang-toggle button:last-child');
+                if (btnDub) {
+                    btnDub.removeAttribute('disabled');
+                    btnDub.removeAttribute('title');
+                    btnDub.onclick = function() { switchLanguage('dub'); };
+                    btnDub.className = 'lang-btn' + (state.language === 'dub' ? ' active' : '');
+                }
+            }
+
+            // Fallback provider checking
+            if (!state.providers.includes(state.provider)) {
+                state.provider = data.default_provider || state.providers[0] || 'kiwi';
+            }
+
+            renderServerPills();
+
+            // Resolve and play streaming links
             _isFallbackInProgress = true;
             fetchAndLoadSources(true);
+
+            // Progressive background loading tasks to reduce load time
+            setTimeout(loadZenithProgressively, 50);
+            setTimeout(loadAnimeXProgressively, 100);
+            setTimeout(loadHindiProgressively, 150);
+        } else {
+            showNoSourcesMessage();
         }
-    }
+    })
+    .catch(function(err) {
+        console.error('[Watch DOMContentLoaded] Error fetching episodes list:', err);
+        showNoSourcesMessage();
+    });
 });
 
 // ── Report / Fix Issue Modal Logic ─────────────────────────────────────────────

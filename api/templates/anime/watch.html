@@ -117,7 +117,14 @@
             <!-- Video Player -->
             <div class="video-wrapper" id="video-wrapper" style="position:relative;">
                 <!-- Custom HLS.js player injected by watch.js -->
-                <div id="player-area" style="width:100%;aspect-ratio:16/9;background:#000;position:relative;overflow:hidden;"></div>
+                <div id="player-area" style="width:100%;aspect-ratio:16/9;background:#000;position:relative;overflow:hidden;">
+                    <div class="player-skeleton skeleton" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #0c0c0c; z-index: 10;">
+                        <div style="text-align: center; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: 16px;">
+                            <div class="yz-spinner" style="border-top-color: var(--accent);"></div>
+                            <span style="font-size: 0.85rem; font-weight: 600; letter-spacing: 1.5px; opacity: 0.75; text-transform: uppercase;">RESOLVING STREAM SOURCES...</span>
+                        </div>
+                    </div>
+                </div>
                 <!-- Error fallback -->
                 <div id="errorFallbackContainer" style="aspect-ratio:16/9;display:none;align-items:center;justify-content:center;background:var(--bg-surface);">
                     <div class="text-center">
@@ -290,7 +297,7 @@
                                 {% set caps = provider_capabilities_map.get(p_name, {"hls": true, "embed": false}) %}
                                 {% if caps.get("hls", true) %}
                                     {% set _ = hls_providers.append(p_name) %}
-                                {% endif %}
+                                  {% endif %}
                             {% endfor %}
                             {% if hls_providers %}
                             <div class="server-section">
@@ -319,7 +326,7 @@
                                 {% set caps = provider_capabilities_map.get(p_name, {"hls": true, "embed": false}) %}
                                 {% if caps.get("embed", false) %}
                                     {% set _ = embed_providers.append(p_name) %}
-                                {% endif %}
+                                  {% endif %}
                             {% endfor %}
                             {% if embed_providers %}
                             <div class="server-section">
@@ -343,6 +350,17 @@
                                 </div>
                             </div>
                             {% endif %}
+                        </div>
+                        {% else %}
+                        <!-- Fallback Premium Server Pill Skeletons while loading -->
+                        <div class="server-sections" id="serverSections">
+                            <div class="server-section">
+                                <div class="server-section-label skeleton" style="width: 72px; height: 13px; border-radius: var(--radius-sm); margin-bottom: 8px;"></div>
+                                <div class="server-section-pills" id="hlsServerPills">
+                                    <div class="skeleton" style="width: 80px; height: 28px; border-radius: var(--radius-full);"></div>
+                                    <div class="skeleton" style="width: 75px; height: 28px; border-radius: var(--radius-full); opacity: 0.65;"></div>
+                                </div>
+                            </div>
                         </div>
                         {% endif %}
 
@@ -594,7 +612,7 @@
             </div>
 
             <div class="episode-sidebar-list" id="episodeList" data-view="grid">
-                {% if episodes_unavailable or not episodes or not episodes.episodes %}
+                {% if episodes_unavailable %}
                 <div class="episodes-empty-state">
                     <div class="ee-icon">
                         {% if next_episode_schedule and next_episode_schedule.airingTimestamp %}
@@ -624,6 +642,13 @@
                             We couldn't find any episodes for this anime. Check back later!
                         {% endif %}
                     </p>
+                </div>
+                {% elif not episodes %}
+                <!-- Premium Shimmer Skeletons while loading episodes -->
+                <div class="episode-sidebar-skeletons" style="display: contents; width: 100%;">
+                    {% for i in range(24) %}
+                    <div class="episode-sidebar-item skeleton" style="height: 52px; pointer-events: none; border: none; opacity: {{ 1.0 - (i * 0.038) }};"></div>
+                    {% endfor %}
                 </div>
                 {% else %}
                 {% for ep in episodes.episodes %}
