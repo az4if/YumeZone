@@ -405,6 +405,21 @@ function attachPlayerControls(shell, vid) {
         }
     });
 
+    // ── Middle-click to play/pause ──
+    shell.addEventListener('mousedown', function(e) {
+        if (e.button === 1) { // Middle click
+            e.preventDefault(); // Prevent default autoscroll icon/behavior
+        }
+    });
+
+    shell.addEventListener('auxclick', function(e) {
+        if (e.button === 1) { // Middle click
+            e.preventDefault();
+            vid.paused ? vid.play() : vid.pause();
+            showCtrls();
+        }
+    });
+
     // Controls auto-hide
     let _lastTouchTime = 0;
     shell.addEventListener('touchstart', ()=>{ _lastTouchTime = Date.now(); }, {passive: true});
