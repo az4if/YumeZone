@@ -82,6 +82,10 @@ function buildCustomPlayer(playerArea, video) {
     shell.innerHTML = `
 <div id="yz-buffering" class="yz-buffering" style="display:none"><div class="yz-spinner"></div></div>
 <button id="yz-skip-btn" class="yz-skip-btn" style="display:none">Skip Intro</button>
+<button id="yz-center-play-btn" class="yz-center-play-btn" style="display:none">
+  <svg class="center-icon-play" width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+  <svg class="center-icon-pause" width="30" height="30" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+</button>
 <div id="yz-overlay" class="yz-overlay"></div>
 <div id="yz-dt-left" class="yz-dt-zone yz-dt-left">
   <div class="yz-dt-indicator"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg><span>10s</span></div>
@@ -195,7 +199,7 @@ function attachPlayerControls(shell, vid) {
           curQualLbl  = g('yz-cur-qual'),  qualRow   = g('yz-qual-row'),
           fsBtn       = g('yz-fs-btn'),    overlay   = g('yz-overlay'),
           pauseFlash  = g('yz-pause-flash'),back10   = g('yz-back10'),
-          fwd10       = g('yz-fwd10');
+          fwd10       = g('yz-fwd10'),     centerPlayBtn = g('yz-center-play-btn');
 
     const cfg = window.WATCH_CONFIG || {};
     let skipTarget = null;
@@ -249,6 +253,10 @@ function attachPlayerControls(shell, vid) {
     function syncPlay() {
         g('yz-play-btn')?.querySelector('.icon-play')?.style.setProperty('display', vid.paused?'':'none');
         g('yz-play-btn')?.querySelector('.icon-pause')?.style.setProperty('display', vid.paused?'none':'');
+        if (centerPlayBtn) {
+            centerPlayBtn.querySelector('.center-icon-play').style.display = vid.paused ? '' : 'none';
+            centerPlayBtn.querySelector('.center-icon-pause').style.display = vid.paused ? 'none' : '';
+        }
     }
     playBtn?.addEventListener('click', ()=> vid.paused ? vid.play() : vid.pause());
     vid.addEventListener('play', syncPlay);
@@ -403,8 +411,20 @@ function attachPlayerControls(shell, vid) {
 
     function showCtrls() {
         controls?.classList.remove('yz-hidden'); shell.style.cursor='';
+        if (centerPlayBtn && _isMobile) {
+            centerPlayBtn.style.opacity = '1';
+            centerPlayBtn.style.pointerEvents = 'auto';
+        }
         clearTimeout(_ctrlTimer);
-        if (!vid.paused) _ctrlTimer = setTimeout(()=>{ controls?.classList.add('yz-hidden'); shell.style.cursor='none'; if(settPanel) settPanel.style.display='none'; }, 3000);
+        if (!vid.paused) _ctrlTimer = setTimeout(()=>{ 
+            controls?.classList.add('yz-hidden'); 
+            shell.style.cursor='none'; 
+            if(settPanel) settPanel.style.display='none'; 
+            if (centerPlayBtn && _isMobile) {
+                centerPlayBtn.style.opacity = '0';
+                centerPlayBtn.style.pointerEvents = 'none';
+            }
+        }, 3000);
     }
     shell.showCtrls = showCtrls;
 
@@ -428,7 +448,15 @@ function attachPlayerControls(shell, vid) {
                     showCtrls();
                 } else {
                     tapTimeout = setTimeout(function() {
-                        controls?.classList.contains('yz-hidden') ? showCtrls() : controls?.classList.add('yz-hidden');
+                        if (controls?.classList.contains('yz-hidden')) {
+                            showCtrls();
+                        } else {
+                            controls?.classList.add('yz-hidden');
+                            if (centerPlayBtn) {
+                                centerPlayBtn.style.opacity = '0';
+                                centerPlayBtn.style.pointerEvents = 'none';
+                            }
+                        }
                     }, 300);
                 }
                 lastTap = now;
@@ -438,9 +466,29 @@ function attachPlayerControls(shell, vid) {
         setupDoubleTap(_dtRightZone, 10);
     }
 
-    overlay?.addEventListener('click', ()=>{
+    if (_isMobile) {
+        overlay?.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            if (controls?.classList.contains('yz-hidden')) {
+                showCtrls();
+            } else {
+                controls?.classList.add('yz-hidden');
+                if (centerPlayBtn) {
+                    centerPlayBtn.style.opacity = '0';
+                    centerPlayBtn.style.pointerEvents = 'none';
+                }
+            }
+        });
+    } else {
+        overlay?.addEventListener('click', ()=>{
+            vid.paused ? vid.play() : vid.pause();
+        });
+    }
+
+    centerPlayBtn?.addEventListener('click', (e)=>{
+        e.stopPropagation();
         vid.paused ? vid.play() : vid.pause();
-        if (_isMobile) showCtrls();
+        showCtrls();
     });
 
     // Settings
@@ -476,21 +524,124 @@ function attachPlayerControls(shell, vid) {
         });
     };
 
-    // Fullscreen + mobile landscape rotation
-    fsBtn?.addEventListener('click', ()=>{
+    // Fullscreen + mobile landscape rotation (with iOS Safari support and auto rotation fallback)
+    function enterPseudoFullscreen(target) {
+        target.classList.add('yz-pseudo-fullscreen');
+        document.body.style.overflow = 'hidden';
+        
+        // Dispatch custom event to simulate fullscreenchange
+        const event = new Event('fullscreenchange', { bubbles: true, cancelable: true });
+        document.dispatchEvent(event);
+    }
+
+    function exitPseudoFullscreen(target) {
+        target.classList.remove('yz-pseudo-fullscreen');
+        target.classList.remove('yz-rotated-fullscreen');
+        document.body.style.overflow = '';
+        
+        // Dispatch custom event to simulate fullscreenchange
+        const event = new Event('fullscreenchange', { bubbles: true, cancelable: true });
+        document.dispatchEvent(event);
+    }
+
+    function toggleFullscreen() {
         var targetFs = document.getElementById('player-area') || shell;
-        if (!document.fullscreenElement) targetFs.requestFullscreen?.()?.catch(()=>{});
-        else document.exitFullscreen?.();
-    });
-    document.addEventListener('fullscreenchange', ()=>{
-        const fs=!!document.fullscreenElement;
-        fsBtn?.querySelector('.icon-fs')?.style.setProperty('display',fs?'none':'');
-        fsBtn?.querySelector('.icon-exit-fs')?.style.setProperty('display',fs?'':'none');
-        // Lock landscape on mobile fullscreen
-        if (_isMobile && screen.orientation && screen.orientation.lock) {
-            if (fs) { try { screen.orientation.lock('landscape').catch(function(){}); } catch(e){} }
-            else    { try { screen.orientation.unlock(); } catch(e){} }
+        const supportsNative = !!targetFs.requestFullscreen || !!targetFs.webkitRequestFullscreen || !!targetFs.mozRequestFullScreen || !!targetFs.msRequestFullscreen;
+
+        if (supportsNative) {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement && !document.msFullscreenElement) {
+                const req = targetFs.requestFullscreen || targetFs.webkitRequestFullscreen || targetFs.mozRequestFullScreen || targetFs.msRequestFullscreen;
+                req.call(targetFs).catch(()=>{
+                    enterPseudoFullscreen(targetFs);
+                });
+            } else {
+                const exit = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+                exit.call(document);
+            }
+        } else {
+            if (!targetFs.classList.contains('yz-pseudo-fullscreen')) {
+                enterPseudoFullscreen(targetFs);
+            } else {
+                exitPseudoFullscreen(targetFs);
+            }
         }
+    }
+
+    function handleFullscreenRotation(isFs) {
+        const playerArea = document.getElementById('player-area');
+        if (!playerArea) return;
+
+        if (isFs) {
+            if (screen.orientation && screen.orientation.lock) {
+                screen.orientation.lock('landscape').catch(() => {
+                    applyCssRotationIfNeeded();
+                });
+            } else {
+                applyCssRotationIfNeeded();
+            }
+        } else {
+            playerArea.classList.remove('yz-rotated-fullscreen');
+            if (screen.orientation && screen.orientation.unlock) {
+                try { screen.orientation.unlock(); } catch(e){}
+            }
+        }
+    }
+
+    function applyCssRotationIfNeeded() {
+        const playerArea = document.getElementById('player-area');
+        if (!playerArea) return;
+
+        const isPortrait = window.innerHeight > window.innerWidth;
+        if (isPortrait) {
+            playerArea.classList.add('yz-rotated-fullscreen');
+        } else {
+            playerArea.classList.remove('yz-rotated-fullscreen');
+        }
+    }
+
+    fsBtn?.addEventListener('click', toggleFullscreen);
+
+    // Listen to Escape key for exiting pseudo-fullscreen
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            const playerArea = document.getElementById('player-area');
+            if (playerArea && playerArea.classList.contains('yz-pseudo-fullscreen')) {
+                exitPseudoFullscreen(playerArea);
+            }
+        }
+    });
+
+    const fsEvents = ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'];
+    fsEvents.forEach(evtName => {
+        document.addEventListener(evtName, () => {
+            const playerArea = document.getElementById('player-area');
+            const fs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement || playerArea?.classList.contains('yz-pseudo-fullscreen'));
+            
+            fsBtn?.querySelector('.icon-fs')?.style.setProperty('display', fs ? 'none' : '');
+            fsBtn?.querySelector('.icon-exit-fs')?.style.setProperty('display', fs ? '' : 'none');
+            
+            if (_isMobile) {
+                handleFullscreenRotation(fs);
+            }
+        });
+    });
+
+    window.addEventListener('resize', () => {
+        const playerArea = document.getElementById('player-area');
+        const fs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement || playerArea?.classList.contains('yz-pseudo-fullscreen'));
+        if (fs && _isMobile) {
+            applyCssRotationIfNeeded();
+        }
+    });
+
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            const playerArea = document.getElementById('player-area');
+            const fs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement || playerArea?.classList.contains('yz-pseudo-fullscreen'));
+            if (fs && _isMobile) {
+                applyCssRotationIfNeeded();
+            }
+        }, 150);
     });
 
     // Keyboard shortcuts handled globally

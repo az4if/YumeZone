@@ -3695,3 +3695,77 @@ body.lights-off-active .yz-player {
         max-height: 200px;
     }
 }
+
+/* Custom Pseudo-Fullscreen and Rotated Fullscreen styles */
+#player-area.yz-pseudo-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    aspect-ratio: auto !important;
+    z-index: 999999 !important;
+    background: #000 !important;
+}
+
+#player-area.yz-rotated-fullscreen {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    width: 100vh !important;
+    height: 100vw !important;
+    max-width: none !important;
+    max-height: none !important;
+    aspect-ratio: auto !important;
+    transform: translate(-50%, -50%) rotate(90deg) !important;
+    z-index: 999999 !important;
+    background: #000 !important;
+}
+
+#player-area.yz-rotated-fullscreen .yz-player {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Glassmorphic Mobile Center Play/Pause button styling */
+.yz-center-play-btn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 21;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 50%;
+    width: 68px;
+    height: 68px;
+    display: none; /* Only shown on mobile when controls are visible */
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    cursor: pointer;
+    transition: opacity 0.25s, transform 0.1s, background-color 0.2s;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.yz-center-play-btn:active {
+    transform: translate(-50%, -50%) scale(0.9);
+}
+
+.yz-center-play-btn:hover {
+    background: rgba(0, 0, 0, 0.6);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+@media (max-width: 768px) {
+    .yz-center-play-btn {
+        display: flex;
+        opacity: 0;
+        pointer-events: none;
+    }
+}
