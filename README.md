@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/walterwhite-69/YumeAnime/master/api/static/images/logos/logo.png" alt="YumeZone Logo" width="200">
+  <img src="https://github.com/az4if/YumeZone/blob/master/YumeAnime_old/api/static/images/logos/logo.png" alt="YumeZone Logo" width="200">
   <h1>YumeZone</h1>
   <p><strong>Your Ultimate Ad-Free Anime & Manga Streaming Experience</strong></p>
   
